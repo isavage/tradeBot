@@ -4,6 +4,12 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # Values from the shell (Doppler on VPS) override .env locally.
+      APCA_API_KEY_ID: ${APCA_API_KEY_ID:-}
+      APCA_API_SECRET_KEY: ${APCA_API_SECRET_KEY:-}
+      NTFY_URL: ${NTFY_URL:-https://ntfy.sh}
+      NTFY_TOPIC: ${NTFY_TOPIC:-}
     volumes:
       - tradebot-data:/app/data
       - tradebot-logs:/app/logs
