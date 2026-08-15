@@ -45,7 +45,7 @@ jobs:
           script: |
             set -eu
             TARGET_DIR="/docker/tradebot"
-            mkdir -p "$TARGET_DIR"
+            mkdir -p "$TARGET_DIR/data" "$TARGET_DIR/logs"
             rsync -av --delete --exclude data --exclude logs /tmp/tradebot-deploy/ "$TARGET_DIR/"
             rm -rf /tmp/tradebot-deploy
             cd "$TARGET_DIR"
