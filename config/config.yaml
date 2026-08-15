@@ -1,0 +1,68 @@
+paper: true
+
+risk:
+  max_risk_per_trade_pct: 1.0
+  max_total_options_risk_pct: 12.0
+  max_open_positions: 8
+
+data:
+  history_years: 4
+  # Free Alpaca plans generally support IEX, not SIP. Use sip only with that subscription.
+  feed: "iex"
+  data_dir: "data/daily"
+  metadata_file: "data/metadata.json"
+
+regime:
+  symbol: "SPY"
+  ma_fast: 50
+  ma_slow: 200
+
+universe:
+  # Optional fallback symbols. Runtime discovery is enabled below.
+  symbols: [SPY]
+  discover_via_alpaca: true
+  discovery_lookback_days: 20
+  max_discovered_symbols: 100
+  require_shortable: false
+  min_price: 15
+  max_price: 250
+  min_avg_volume: 1000000
+
+breakout:
+  lookback_days: 60
+  volume_multiplier: 1.8
+  rsi_period: 14
+  rsi_min: 55
+  rsi_max: 78
+  min_breakout_pct: 0.005
+  require_trend_alignment: true
+
+selection:
+  max_candidates_per_day: 5
+  # Keep a breakout eligible briefly after it triggers, if price/trend hold.
+  require_signal_on_latest_bar: false
+  signal_max_age_days: 5
+
+options:
+  min_dte: 35
+  max_dte: 60
+  long_delta: 0.55          # for buying calls/puts
+  short_delta: 0.20         # for credit spreads
+  iron_condor_delta: 0.18
+  min_open_interest: 500
+  max_bid_ask_spread_pct: 0.08
+
+exits:
+  credit_profit_take_pct: 0.60
+  debit_profit_take_pct: 0.80
+  stop_loss_pct: 0.45
+  time_stop_days: 25
+
+safety:
+  max_daily_loss_pct: 2.0
+  kill_switch: false
+  log_file: "logs/trade_bot.log"
+
+execution:
+  enabled: false
+  max_option_logs: 20

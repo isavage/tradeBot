@@ -1,0 +1,51 @@
+name: Deploy TradeBot to VPS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths-ignore: ['README.md', '.gitignore']
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Upload project
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: ".,!.git*,!.github*,!.env,!.env.*"
+          target: "/tmp/tradebot-deploy/"
+          strip_components: 1
+          overwrite: true
+
+      - name: Deploy with Doppler
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DOPPLER_TOKEN
+          script: |
+            set -eu
+            TARGET_DIR="/docker/tradebot"
+            mkdir -p "$TARGET_DIR"
+            rsync -av --delete --exclude data --exclude logs /tmp/tradebot-deploy/ "$TARGET_DIR/"
+            rm -rf /tmp/tradebot-deploy
+            cd "$TARGET_DIR"
+            touch .env
+            if ! command -v doppler >/dev/null 2>&1; then
+              mkdir -p "$HOME/.local/bin"
+              curl -sL https://cli.doppler.com/install.sh | sh -s -- --install-path "$HOME/.local/bin"
+            fi
+            export PATH="$HOME/.local/bin:$PATH"
+            test -n "$DOPPLER_TOKEN"
+            doppler run -- docker compose up -d --build
+            docker compose ps

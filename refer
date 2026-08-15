@@ -1,0 +1,100 @@
+name: Deploy to VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'prod-IN'
+        type: choice
+        options:
+          - prod-IN
+          - prod-NL
+      cleanup:
+        description: 'Clean up persistent directories before deploying'
+        required: false
+        type: boolean
+        default: false
+
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '.gitignore'
+      - 'README.md'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'prod-IN' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Upload files to temporary directory on VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          source: ".,!.git*,!.github*,!.gitignore,!.env,!.env.doppler"
+          target: "/tmp/outlook-manager-deploy-temp/"
+          strip_components: 1
+          overwrite: true
+
+      - name: Cleanup, move files, and finalize deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+
+            TARGET_DIR="/docker/outlook-manager"
+            TEMP_DIR="/tmp/outlook-manager-deploy-temp"
+
+            mkdir -p "$TARGET_DIR"
+            cd "$TARGET_DIR"
+
+            export DOPPLER_TOKEN="${{ secrets.DOPPLER_TOKEN }}"
+
+            if [ "${{ inputs.cleanup }}" = "true" ]; then
+              echo "🧹 Cleaning up persistent directories..."
+              sudo find . -mindepth 1 -delete
+            fi
+
+            echo "🚚 Moving new files to $TARGET_DIR..."
+            rsync -av --no-perms --no-owner --no-group "$TEMP_DIR"/. ./
+            rm -rf "$TEMP_DIR"
+
+            if ! command -v doppler >/dev/null 2>&1; then
+              echo "⬇️ Installing Doppler CLI to user path..."
+              mkdir -p "$HOME/.local/bin"
+              PATH="$HOME/.local/bin:$PATH"
+              curl -sL https://cli.doppler.com/install.sh | sh -s -- --install-path "$HOME/.local/bin"
+            fi
+            PATH="$HOME/.local/bin:$PATH"
+
+            echo "🔐 Validating Doppler secrets..."
+            if ! doppler run -- sh -lc 'test -n "$VITE_API_BASE_URL" && test -n "$VITE_AZURE_CLIENT_ID" && test -n "$VITE_AZURE_TENANT_ID" && test -n "$VITE_REDIRECT_URI"'; then
+              echo "❌ Required Doppler secrets are missing or empty"
+              exit 1
+            fi
+            echo "✅ Doppler secrets validated"
+
+            echo "🚀 Restarting services..."
+            doppler run -- docker compose down || true
+            doppler run -- docker compose up -d --build
+
+            sleep 10
+            if ! doppler run -- docker compose ps | grep -q "Up"; then
+              echo "❌ Services failed to start!"
+              doppler run -- docker compose logs
+              exit 1
+            fi
+            echo "✅ Services running"
+
+            echo "🎉 Deployment completed successfully!"
