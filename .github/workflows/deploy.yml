@@ -2,6 +2,14 @@ name: Deploy TradeBot to VPS
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub Environment to deploy to
+        required: true
+        default: prod-IN
+        type: choice
+        options:
+          - prod-IN
   push:
     branches: [main, master]
     paths-ignore: ['README.md', '.gitignore']
@@ -9,6 +17,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'prod-IN' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
