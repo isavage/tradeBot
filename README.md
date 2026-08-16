@@ -1,55 +1,89 @@
-# Regime-Adaptive Options Income System
+# TradeBot
 
-Systematic Alpaca paper-trading framework for local daily bars, SPY regime detection, breakout/breakdown scanning, defined-risk option structures, sizing, and deterministic exits. There is no LLM or discretionary decision layer.
+Regime-aware Alpaca market scanner for daily and intraday momentum signals. It is configured for paper trading; order submission is disabled by default.
+
+## Strategies
+
+Daily mode stores four years of daily Parquet history for backtesting, but uses only the latest 300 candles for live calculations. It evaluates once per trading day at or after market open using the previous completed daily candle. Alpaca's calendar handles weekends, holidays, and early closes.
+
+Intraday mode uses current-session 1-minute bars, stores them in `data/intraday/<SYMBOL>.parquet`, and appends only new bars during the session. Files are replaced on the next trading day. It evaluates every 15 minutes from 10:30 AM through 2:00 PM Eastern Time.
+
+## Local setup
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Copy `.env.example` to `.env`:
+
+```env
+APCA_API_KEY_ID=...
+APCA_API_SECRET_KEY=...
+NTFY_URL=https://ntfy.sh
+NTFY_TOPIC=some-long-random-private-topic
+```
+
+Install the ntfy mobile app and subscribe to the same topic. Alerts cover candidates, failures, and container start/stop events. Notifications are skipped when `NTFY_TOPIC` is unset.
+
+Run locally:
+
+```bash
+python main.py --mode daily
+python main.py --mode intraday
+python monitor_positions.py
+python backtest.py --side bullish --horizon 20 --output results/bullish.csv
+./.venv/bin/python -m pytest -q
+```
+
+## Docker
+
+One image runs independent daily and intraday services:
+
+```bash
+docker compose up -d --build
+docker compose logs -f daily
+docker compose logs -f intraday
+```
+
+VPS bind mounts:
+
+```text
+/docker/tradebot/data  -> /app/data
+/docker/tradebot/logs  -> /app/logs
+```
+
+The container wrapper handles service loops and lifecycle notifications.
+
+## VPS deployment
+
+`.github/workflows/deploy.yml` deploys to `/docker/tradebot` and uses the GitHub `prod-IN` environment by default. Required environment secrets are:
+
+```text
+VPS_HOST
+VPS_USER
+VPS_SSH_KEY
+DOPPLER_TOKEN
+```
+
+Doppler supplies Alpaca and ntfy variables to Docker Compose on the VPS. Local `.env` is the development fallback. Secret files are excluded from deployment.
+
+## Configuration and layout
+
+Runtime settings are in `config/config.yaml`, including data feed, universe discovery, daily and intraday thresholds, trading windows, risk, options, exits, and execution safety.
+
+```text
+main.py                 daily/intraday CLI
+backtest.py             historical underlying-signal backtest
+monitor_positions.py    position-monitor entry point
+src/                    reusable application modules
+config/config.yaml      runtime configuration
+Dockerfile              shared image
+docker-compose.yml      daily and intraday services
+docker-entrypoint.sh    service loop and lifecycle alerts
+```
 
 ## Safety
 
-Paper trading is enabled by `paper: true`. Use a dedicated Alpaca account and validate every multi-leg order in paper mode. This is not financial advice. The daily runner intentionally does not submit orders until chain selection, account checks, persisted trade metadata, and risk approval are wired around the execution adapter.
-
-## Setup
-
-Use Python 3.10+, install `requirements.txt`, and create `.env` with `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY`. Run from the repository root. Daily data is stored in `data/daily/<SYMBOL>.parquet`; `data/metadata.json` records the last successful bar date.
-
-- `python main.py --force-refresh`
-- `python main.py`
-- `python monitor_positions.py`
-- `pytest -q`
-- `python backtest.py --side bullish --horizon 20 --output results/bullish.csv`
-
-## Modules
-
-- `src/data_manager.py`: validated incremental Parquet storage.
-- `src/regime.py`: exact SPY 50/200 moving-average rules.
-- `src/scanners.py`: pure breakout, breakdown, and low-ATR scans.
-- `src/options.py`: liquidity filters, delta selection, credit spreads, and iron-condor max-profit/loss math.
-- `src/risk.py`: equity-based per-trade and portfolio risk limits.
-- `src/execution.py`: Alpaca MLEG limit-order adapter.
-- `src/monitor.py`: profit, stop, and time-stop decisions.
-- `backtest.py`: evaluates historical scanner signals against forward underlying returns.
-
-## Signal backtest
-
-The backtest walks each local Parquet file chronologically. For every date it
-uses only data available through that date, applies the configured breakout or
-breakdown scanner, enters at the next bar's open, and exits after the requested
-number of trading bars at the close. It reports signal count, win rate, average,
-median, best, and worst directional returns and can write every trade to CSV.
-
-This is an underlying-price test, not an options-profit test. It is useful for
-answering whether the 56 historical setups were followed by meaningful moves,
-but it does not model option premium, implied volatility, bid/ask spread,
-slippage, theta, or contract selection. A later options backtest must use
-historical option quotes for the exact contracts selected on each signal date.
-
-## Dynamic universe discovery
-
-By default, the daily runner calls Alpaca's Trading API for active, tradable US
-equity assets, then calls Alpaca's historical data API in batches. It filters by
-the configured price and average-volume thresholds and ranks the result by
-average dollar volume over `discovery_lookback_days`. `max_discovered_symbols`
-limits the scan, and SPY is always retained for regime detection. Set
-`discover_via_alpaca: false` to use the configured `symbols` fallback. Discovery
-requires the same API credentials as historical data and is performed before
-the local incremental update.
-
-Before live use, add persistent trade metadata (strategy, entry value/date, legs, quantity), order-status reconciliation, buying-power checks, and a daily-loss circuit breaker around execution. Never infer entry values from current broker positions.
+This project is not financial advice. Before enabling orders, add and validate position reconciliation, buying-power checks, persisted trade metadata, option spread validation, and a tested daily-loss circuit breaker.
