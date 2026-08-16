@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
@@ -44,6 +44,11 @@ class DataManager:
 
     def path_for(self, symbol: str) -> Path:
         return self.data_dir / f"{symbol.upper()}.parquet"
+
+    def intraday_path_for(self, symbol: str) -> Path:
+        path = Path(self.config["intraday"].get("data_dir", "data/intraday"))
+        path.mkdir(parents=True, exist_ok=True)
+        return path / f"{symbol.upper()}.parquet"
 
     def get_last_stored_date(self, symbol: str) -> Optional[date]:
         value = self.load_metadata().get(symbol.upper())
@@ -98,6 +103,34 @@ class DataManager:
                                    end=end + timedelta(days=1), timeframe=TimeFrame.Day,
                                    adjustment=Adjustment.ALL, feed=feed)
         return self.validate(self.client.get_stock_bars(request).df)
+
+    def fetch_intraday_bars(self, symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
+        """Fetch minute bars without normalizing timestamps to daily dates."""
+        if self.client is None:
+            from alpaca.data import StockHistoricalDataClient
+            key, secret = os.getenv("APCA_API_KEY_ID"), os.getenv("APCA_API_SECRET_KEY")
+            if not key or not secret:
+                raise RuntimeError("APCA_API_KEY_ID and APCA_API_SECRET_KEY are required")
+            self.client = StockHistoricalDataClient(key, secret)
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+        from alpaca.data.enums import DataFeed
+        feed_name = str(self.config["data"].get("feed", "iex")).lower()
+        try:
+            feed = DataFeed(feed_name)
+        except ValueError as exc:
+            raise ValueError("data.feed must be either 'iex' or 'sip'") from exc
+        request = StockBarsRequest(symbol_or_symbols=symbol.upper(), start=start, end=end,
+                                   timeframe=TimeFrame(1, TimeFrameUnit.Minute), feed=feed)
+        frame = self.client.get_stock_bars(request).df
+        if frame.empty:
+            return frame
+        if isinstance(frame.index, pd.MultiIndex):
+            frame = frame.xs(symbol.upper(), level="symbol", drop_level=True)
+        frame = frame.copy()
+        frame.columns = [str(column).lower() for column in frame.columns]
+        frame.index = pd.to_datetime(frame.index, utc=True).tz_convert("America/New_York").tz_localize(None)
+        return frame[~frame.index.duplicated(keep="last")].sort_index()
 
     def append_data(self, symbol: str, frame: pd.DataFrame) -> None:
         incoming = self.validate(frame)
@@ -187,3 +220,14 @@ class DataManager:
         discovered = ranked.sort_values("dollar_volume", ascending=False).head(int(universe.get("max_discovered_symbols", 100))).index.tolist()
         anchor = str(self.config["regime"]["symbol"]).upper()
         return list(dict.fromkeys([anchor, *discovered]))
+
+    def market_calendar(self, day: date):
+        """Return Alpaca's US equity calendar entry for a date, if any."""
+        key, secret = os.getenv("APCA_API_KEY_ID"), os.getenv("APCA_API_SECRET_KEY")
+        if not key or not secret:
+            raise RuntimeError("APCA_API_KEY_ID and APCA_API_SECRET_KEY are required")
+        from alpaca.trading.client import TradingClient
+        from alpaca.trading.requests import GetCalendarRequest
+        trading = TradingClient(key, secret, paper=bool(self.config.get("paper", True)))
+        entries = trading.get_calendar(GetCalendarRequest(start=day, end=day))
+        return entries[0] if entries else None

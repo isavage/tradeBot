@@ -58,3 +58,28 @@ def scan_range_bound(frame: pd.DataFrame, lookback_days: int = 20, max_atr_pct: 
     true_range = pd.concat([result.high - result.low, (result.high - result.close.shift()).abs(), (result.low - result.close.shift()).abs()], axis=1).max(axis=1)
     result["atr_pct"] = true_range.rolling(lookback_days).mean() / result["close"]
     return result.loc[result["atr_pct"] <= max_atr_pct].copy()
+
+
+def scan_intraday_breakout(frame: pd.DataFrame, lookback_bars: int = 60,
+                           volume_multiplier: float = 1.5, rsi_period: int = 14,
+                           rsi_min: float = 52, rsi_max: float = 82,
+                           min_breakout_pct: float = 0.0025,
+                           fast_ma: int = 10, slow_ma: int = 30) -> pd.DataFrame:
+    """Evaluate only the latest completed same-session minute bar."""
+    if len(frame) < lookback_bars + 2:
+        return frame.iloc[0:0].copy()
+    result = frame.copy()
+    prior = result.iloc[:-1].copy()  # never trade on a potentially open minute
+    prior_high = prior["high"].rolling(lookback_bars).max().shift(1)
+    average_volume = prior["volume"].rolling(lookback_bars).mean().shift(1)
+    prior["rsi"] = _rsi(prior["close"], rsi_period)
+    prior["volume_ratio"] = prior["volume"] / average_volume
+    prior["breakout_pct"] = prior["close"] / prior_high - 1
+    prior["fast_ma"] = prior["close"].rolling(fast_ma).mean()
+    prior["slow_ma"] = prior["close"].rolling(slow_ma).mean()
+    latest = prior.iloc[[-1]]
+    trend = latest["close"] > latest["fast_ma"]
+    mask = ((latest["breakout_pct"] >= min_breakout_pct)
+            & (latest["volume_ratio"] >= volume_multiplier)
+            & latest["rsi"].between(rsi_min, rsi_max) & trend)
+    return latest.loc[mask].copy()

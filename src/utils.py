@@ -14,3 +14,8 @@ def setup_logging(log_path: str = "trade_bot.log") -> None:
     Path(log_path).parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s",
                         handlers=[logging.FileHandler(log_path), logging.StreamHandler()])
+
+
+def recent_frame(frame, bars: int):
+    """Limit live indicator calculations while retaining full data on disk."""
+    return frame.tail(int(bars)) if bars > 0 else frame

@@ -11,6 +11,7 @@ data:
   feed: "iex"
   data_dir: "data/daily"
   metadata_file: "data/metadata.json"
+  daily_signal_marker: "data/daily/.last_signal_date"
 
 regime:
   symbol: "SPY"
@@ -39,9 +40,23 @@ breakout:
 
 selection:
   max_candidates_per_day: 5
+  live_scan_bars: 300
   # Keep a breakout eligible briefly after it triggers, if price/trend hold.
   require_signal_on_latest_bar: false
   signal_max_age_days: 5
+
+intraday:
+  data_dir: "data/intraday"
+  lookback_bars: 60
+  volume_multiplier: 1.5
+  rsi_period: 14
+  rsi_min: 52
+  rsi_max: 82
+  min_breakout_pct: 0.0025
+  fast_ma: 10
+  slow_ma: 30
+  start_time: "10:30"
+  cutoff_time: "14:00"
 
 options:
   min_dte: 35

@@ -21,6 +21,7 @@ ENV/
 
 # Local trading data and runtime artifacts
 data/daily/*.parquet
+data/intraday/*.parquet
 data/metadata.json
 logs/
 *.log

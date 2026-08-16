@@ -2,7 +2,7 @@
 set -u
 
 notify() {
-  python -c "from src.notifications import send_ntfy; send_ntfy('$1', title='TradeBot container')" || true
+  python -c "from src.notifications import send_ntfy; send_ntfy('$1', title='TradeBot ${MODE}')" || true
 }
 
 shutdown() {
@@ -10,13 +10,16 @@ shutdown() {
   exit 0
 }
 
+MODE="${1:-daily}"
+INTERVAL=3600
+[ "$MODE" = "intraday" ] && INTERVAL=900
 trap shutdown TERM INT
-notify "TradeBot container started"
+notify "TradeBot ${MODE} container started"
 
 while true; do
-  python main.py
+  python main.py --mode "$MODE"
   status=$?
   echo "TradeBot run exited with status $status"
-  sleep 3600 &
+  sleep "$INTERVAL" &
   wait $!
 done
