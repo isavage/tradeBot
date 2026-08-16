@@ -1,5 +1,5 @@
 services:
-  tradebot:
+  daily:
     build: .
     restart: unless-stopped
     env_file:
@@ -13,3 +13,19 @@ services:
     volumes:
       - /docker/tradebot/data:/app/data
       - /docker/tradebot/logs:/app/logs
+    command: daily
+
+  intraday:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APCA_API_KEY_ID: ${APCA_API_KEY_ID:-}
+      APCA_API_SECRET_KEY: ${APCA_API_SECRET_KEY:-}
+      NTFY_URL: ${NTFY_URL:-https://ntfy.sh}
+      NTFY_TOPIC: ${NTFY_TOPIC:-}
+    volumes:
+      - /docker/tradebot/data:/app/data
+      - /docker/tradebot/logs:/app/logs
+    command: intraday
