@@ -44,14 +44,28 @@ def scan_breakouts(frame: pd.DataFrame, lookback_days: int = 60, volume_multipli
     }
     return result.loc[mask].copy()
 
-def scan_breakdowns(frame: pd.DataFrame, lookback_days: int = 60, volume_multiplier: float = 1.8) -> pd.DataFrame:
+def scan_breakdowns(frame: pd.DataFrame, lookback_days: int = 60, volume_multiplier: float = 1.8,
+                    require_trend_alignment: bool = True) -> pd.DataFrame:
     result = frame.copy()
     prior_low = result["low"].rolling(lookback_days).min().shift(1)
     average_volume = result["volume"].rolling(lookback_days).mean().shift(1)
     result["volume_ratio"] = result["volume"] / average_volume
     result["breakdown_pct"] = 1 - result["close"] / prior_low
+    result["ma20"] = result["close"].rolling(20).mean()
+    result["ma50"] = result["close"].rolling(50).mean()
+    trend = (result["close"] < result["ma20"]) & (result["ma20"] < result["ma50"])
     result["score"] = result["volume_ratio"].clip(upper=4) / 4 * 60 + result["breakdown_pct"].clip(lower=0, upper=0.10) / 0.10 * 40
-    return result.loc[(result["breakdown_pct"] >= 0.005) & (result["volume_ratio"] >= volume_multiplier)].copy()
+    mask = (result["breakdown_pct"] >= 0.0025) & (result["volume_ratio"] >= volume_multiplier)
+    if require_trend_alignment:
+        mask &= trend
+    result.attrs["filter_counts"] = {
+        "total_bars": len(result),
+        "breakdown": int((result["breakdown_pct"] >= 0.0025).sum()),
+        "volume": int(((result["breakdown_pct"] >= 0.0025) & (result["volume_ratio"] >= volume_multiplier)).sum()),
+        "trend": int(((result["breakdown_pct"] >= 0.0025) & (result["volume_ratio"] >= volume_multiplier) & trend).sum()),
+        "signals": int(mask.sum()),
+    }
+    return result.loc[mask].copy()
 
 def scan_range_bound(frame: pd.DataFrame, lookback_days: int = 20, max_atr_pct: float = 0.04) -> pd.DataFrame:
     result = frame.copy()
