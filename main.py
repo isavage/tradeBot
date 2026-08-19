@@ -25,7 +25,7 @@ def _decode_occ(symbol: str) -> tuple[str, str] | None:
     strike = f"{int(match.group(4)) / 1000:.2f}"
     return expiry, strike
 
-def _option_log(symbol: str, regime: str, config: dict) -> None:
+def _option_log(symbol: str, direction: str, config: dict) -> None:
     """Log a read-only option candidate from Alpaca's current option snapshots."""
     try:
         from alpaca.data.historical.option import OptionHistoricalDataClient
@@ -37,7 +37,7 @@ def _option_log(symbol: str, regime: str, config: dict) -> None:
         options = config["options"]
         request = OptionChainRequest(underlying_symbol=symbol, expiration_date_gte=today + timedelta(days=options["min_dte"]), expiration_date_lte=today + timedelta(days=options["max_dte"]))
         snapshots = client.get_option_chain(request)
-        desired_type = ContractType.CALL if regime == "Bullish" else ContractType.PUT
+        desired_type = ContractType.CALL if direction == "bullish" else ContractType.PUT
         target_delta = float(options["long_delta"])
         selected = []
         for contract_symbol, snapshot in snapshots.items():
@@ -170,14 +170,15 @@ def run(config_path: str, force_refresh: bool = False, submit: bool = False) -> 
     candidates = route(regime, frames, config)
     LOGGER.info("Regime=%s candidates=%s submit=%s", regime, len(candidates), submit)
     if candidates:
-        names = ", ".join(candidate.symbol for candidate in candidates)
+        names = ", ".join(f"{candidate.symbol} ({'bullish' if candidate.strategy == 'bullish_breakout' else 'bearish'})" for candidate in candidates)
         send_ntfy(f"Regime: {regime}\nCandidates ({len(candidates)}): {names}",
                   title="TradeBot daily candidates")
     for candidate in candidates:
         row = frames[candidate.symbol].loc[candidate.signal_date]
         LOGGER.info("CANDIDATE rank_score=%.1f symbol=%s strategy=%s signal_date=%s close=%.2f high=%.2f volume=%d metrics=%s", candidate.score, candidate.symbol, candidate.strategy, candidate.signal_date, row["close"], row["high"], row["volume"], candidate.metrics)
     for candidate in candidates[:int(config.get("execution", {}).get("max_option_logs", 20))]:
-        _option_log(candidate.symbol, regime, config)
+        direction = "bullish" if candidate.strategy == "bullish_breakout" else "bearish"
+        _option_log(candidate.symbol, direction, config)
     LOGGER.info("Order submission remains disabled=%s", not config.get("execution", {}).get("enabled", False))
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(now_et.date().isoformat(), encoding="utf-8")
